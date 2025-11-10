@@ -1,0 +1,134 @@
+name: Development Workflow
+
+on:
+  push:
+    branches: [ develop ]
+  pull_request:
+    branches: [ develop ]
+
+jobs:
+  dev-check:
+    runs-on: ubuntu-latest
+
+    steps:
+    - name: Checkout code
+      uses: actions/checkout@v4
+
+    - name: Setup Node.js
+      uses: actions/setup-node@v4
+      with:
+        node-version: '18.x'
+        cache: 'npm'
+
+    - name: Install dependencies
+      run: npm ci
+
+    - name: Run development checks
+      run: |
+        echo "Running development checks..."
+
+        # Type checking
+        npm run type-check
+
+        # Linting
+        npm run lint
+
+        # Build
+        npm run build
+
+        # Validate plugin structure
+        npm run validate-plugin-structure
+
+        echo "All development checks passed!"
+
+    - name: Check for breaking changes
+      run: |
+        echo "Checking for potential breaking changes..."
+
+        # Look for changes that might affect plugin compatibility
+        if [ "${{ github.event_name }}" = "pull_request" ]; then
+          # Get changed files
+          CHANGED_FILES=$(git diff --name-only origin/${{ github.base_ref }}..HEAD)
+
+          # Check for changes in core files
+          if echo "$CHANGED_FILES" | grep -q "src/main.ts\|src/libs/\|package.json"; then
+            echo "⚠️  Core files changed - please review for breaking changes"
+          fi
+
+          # Check for API changes
+          if echo "$CHANGED_FILES" | grep -q "src/main.ts" && git diff --name-only origin/${{ github.base_ref }}..HEAD | xargs grep -l "window\.__ORCA_ICON_REPLACER"; then
+            echo "⚠️  Plugin API changes detected - ensure backward compatibility"
+          fi
+        fi
+
+    - name: Generate development report
+      if: github.event_name == 'push'
+      run: |
+        echo "## Development Build Report" > $GITHUB_STEP_SUMMARY
+        echo "" >> $GITHUB_STEP_SUMMARY
+        echo "- **Commit**: ${{ github.sha }}" >> $GITHUB_STEP_SUMMARY
+        echo "- **Branch**: ${{ github.ref_name }}" >> $GITHUB_STEP_SUMMARY
+        echo "- **Build Status**: ✅ Success" >> $GITHUB_STEP_SUMMARY
+        echo "" >> $GITHUB_STEP_SUMMARY
+        echo "### Plugin Information" >> $GITHUB_STEP_SUMMARY
+        echo "- **Name**: $(node -p "require('./package.json').name")" >> $GITHUB_STEP_SUMMARY
+        echo "- **Version**: $(node -p "require('./package.json').version")" >> $GITHUB_STEP_SUMMARY
+        echo "- **Display Name**: $(node -p "require('./package.json').orca.displayName")" >> $GITHUB_STEP_SUMMARY
+
+  dependency-update:
+    runs-on: ubuntu-latest
+    if: github.event_name == 'schedule' || contains(github.event.head_commit.message, '[deps]')
+
+    steps:
+    - name: Checkout code
+      uses: actions/checkout@v4
+      with:
+        token: ${{ secrets.GITHUB_TOKEN }}
+
+    - name: Setup Node.js
+      uses: actions/setup-node@v4
+      with:
+        node-version: '18.x'
+        cache: 'npm'
+
+    - name: Check for outdated dependencies
+      run: |
+        npm install -g npm-check-updates
+        ncu --check-updates
+
+    - name: Update dependencies
+      run: |
+        npm install -g npm-check-updates
+        ncu -u
+        npm update
+        npm audit fix --audit-level moderate
+
+    - name: Test updated dependencies
+      run: |
+        npm run test
+
+    - name: Create Pull Request
+      if: success()
+      uses: peter-evans/create-pull-request@v5
+      with:
+        token: ${{ secrets.GITHUB_TOKEN }}
+        commit-message: "chore: update dependencies [deps]"
+        title: "🔄 Automated Dependency Updates"
+        body: |
+          ## 🔄 Automated Dependency Updates
+
+          This PR contains automated updates to project dependencies.
+
+          ### Changes
+          - Updated npm dependencies to latest compatible versions
+          - Ran security audits and fixed moderate vulnerabilities
+          - Verified all tests pass
+
+          ### Verification
+          - [ ] All builds pass
+          - [ ] Plugin functionality works correctly
+          - [ ] No breaking changes introduced
+
+          Please review and merge if everything looks good.
+        branch: chore/update-dependencies
+        delete-branch: true

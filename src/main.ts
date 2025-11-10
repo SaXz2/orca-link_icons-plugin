@@ -145,7 +145,7 @@ export async function load(pluginName: string) {
       const domain = extractDomain(url);
       if (!domain) return;
 
-      let iconUrl = cache[domain]?.url;
+      let iconUrl: string | null = cache[domain]?.url;
       if (!iconUrl) {
         iconUrl = await fetchIcon(domain);
         if (iconUrl) {
@@ -179,7 +179,7 @@ export async function load(pluginName: string) {
         cleanupImage();
       };
     } catch (e) {
-      console.warn(`[图标插件] 处理链接失败: ${(linkElement as HTMLElement).href}`, e);
+      console.warn(`[图标插件] 处理链接失败: ${linkElement.getAttribute('href')}`, e);
     } finally {
       originalIcon.classList.remove('orca-icon-loading');
     }
@@ -263,7 +263,11 @@ export async function load(pluginName: string) {
         img.onload = img.onerror = null;
         img.src = '';
       });
-      resources.nodes?.forEach(node => node.remove());
+      resources.nodes?.forEach(node => {
+        if (node.parentNode) {
+          node.parentNode.removeChild(node);
+        }
+      });
 
       console.log('[图标插件] 已完全卸载');
     };

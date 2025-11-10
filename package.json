@@ -7,7 +7,13 @@
   "scripts": {
     "build": "vite build",
     "dev": "vite build --watch",
-    "clean": "rimraf dist"
+    "clean": "rimraf dist",
+    "type-check": "tsc --noEmit",
+    "lint": "eslint src --ext .ts,.tsx --fix",
+    "validate-plugin-structure": "node scripts/validate-plugin.js",
+    "test": "npm run type-check && npm run build",
+    "prepack": "npm run clean && npm run build",
+    "version": "npm run build"
   },
   "peerDependencies": {
     "react": "^18.2.0",

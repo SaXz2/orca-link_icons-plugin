@@ -1,0 +1,57 @@
+{
+  "name": "orca-link_icons-plugin",
+  "version": "1.0.0",
+  "description": "自动更新链接图标插件 - 为Orca Note中的链接自动获取并显示网站图标",
+  "main": "dist/index.js",
+  "type": "module",
+  "scripts": {
+    "build": "vite build",
+    "dev": "vite build --watch",
+    "clean": "rimraf dist"
+  },
+  "peerDependencies": {
+    "react": "^18.2.0",
+    "valtio": "^1.13.2"
+  },
+  "devDependencies": {
+    "@vitejs/plugin-react-swc": "^3.6.0",
+    "@types/react": "^18.2.43",
+    "@types/react-dom": "^18.2.17",
+    "@typescript-eslint/eslint-plugin": "^6.14.0",
+    "@typescript-eslint/parser": "^6.14.0",
+    "@vitejs/plugin-react": "^4.2.1",
+    "eslint": "^8.55.0",
+    "eslint-plugin-react-hooks": "^4.6.0",
+    "eslint-plugin-react-refresh": "^0.4.5",
+    "rimraf": "^5.0.5",
+    "rollup-plugin-external-globals": "^0.9.0",
+    "typescript": "^5.2.2",
+    "vite": "^5.0.8"
+  },
+  "keywords": [
+    "orca",
+    "plugin",
+    "link",
+    "icon",
+    "favicon",
+    "productivity",
+    "enhancement"
+  ],
+  "author": "iwy5nfalj9l1y",
+  "license": "MIT",
+  "engines": {
+    "node": ">=16.0.0"
+  },
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/iwy5nfalj9l1y/orca-link-icons-plugin.git"
+  },
+  "orca": {
+    "displayName": "链接图标增强器",
+    "description": "自动将链接中的默认地球图标替换为真实网站图标，支持多源获取和本地缓存",
+    "version": "1.0.0",
+    "category": "productivity",
+    "tags": ["link", "icon", "favicon", "ui", "enhancement"],
+    "repoId": "iwy5nfalj9l1y"
+  }
+} 

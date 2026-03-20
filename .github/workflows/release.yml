@@ -103,6 +103,9 @@ jobs:
         PRERELEASE_FLAG=""
         echo "$VERSION" | grep -qE '(alpha|beta|rc)' && PRERELEASE_FLAG="--prerelease"
 
+        # Delete any pre-existing release with this tag (idempotent retry)
+        gh release delete "$VERSION" --yes 2>/dev/null || true
+
         gh release create "$VERSION" \
           "${{ env.ZIP_NAME }}" \
           --title "Orca Link Icons Plugin $VERSION" \

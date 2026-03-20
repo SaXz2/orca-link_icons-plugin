@@ -12,6 +12,8 @@ jobs:
     steps:
     - name: Checkout code
       uses: actions/checkout@v4
+      with:
+        fetch-depth: 0
 
     - name: Setup Node.js
       uses: actions/setup-node@v4
@@ -22,89 +24,60 @@ jobs:
     - name: Install dependencies
       run: npm ci
 
-    - name: Run tests and validation
+    - name: Type check and build
       run: |
         npm run type-check
-        npm run lint
         npm run build
-        npm run validate-plugin-structure
 
-    - name: Create plugin package
+    - name: Validate plugin structure
+      run: npm run validate-plugin-structure
+
+    - name: Create release zip
       run: |
-        echo "Creating plugin package..."
+        VERSION="${{ github.ref_name }}"
+        ZIP_NAME="orca-link-icons-plugin-${VERSION}.zip"
 
-        # Create a temporary directory for the package
-        PKG_DIR="orca-link-icons-plugin"
-        mkdir -p "$PKG_DIR"
+        # Stage files in a temp directory so zip root contains files directly
+        STAGE_DIR=$(mktemp -d)
 
-        # Copy required files
-        cp -r dist "$PKG_DIR/"
-        cp icon.png "$PKG_DIR/"
-        cp LICENSE "$PKG_DIR/"
-        cp README.md "$PKG_DIR/" 2>/dev/null || echo "README.md not found, skipping"
+        cp package.json  "$STAGE_DIR/"
+        cp -r dist       "$STAGE_DIR/"
+        cp LICENSE       "$STAGE_DIR/"
+        cp icon.png      "$STAGE_DIR/"
+        cp README.md     "$STAGE_DIR/" 2>/dev/null || true
 
-        # Create package.json for distribution (minimal)
-        cat > "$PKG_DIR/package.json" << EOF
-        {
-          "name": "orca-link-icons-plugin",
-          "version": "$(node -p "require('./package.json').version")",
-          "description": "$(node -p "require('./package.json').description")",
-          "main": "dist/index.js",
-          "orca": $(node -p "JSON.stringify(require('./package.json').orca)")
-        }
-        EOF
+        # Zip from inside the stage dir so paths are at the root level
+        (cd "$STAGE_DIR" && zip -r "$GITHUB_WORKSPACE/$ZIP_NAME" .)
 
-        # Create plugin info file
-        cat > "$PKG_DIR/plugin-info.json" << EOF
-        {
-          "name": "orca-link-icons-plugin",
-          "version": "$(node -p "require('./package.json').version")",
-          "displayName": "$(node -p "require('./package.json').orca.displayName")",
-          "description": "$(node -p "require('./package.json').orca.description")",
-          "author": "$(node -p "require('./package.json').author")",
-          "buildDate": "$(date -u +%Y-%m-%dT%H:%M:%SZ)",
-          "gitCommit": "${{ github.sha }}",
-          "gitTag": "${{ github.ref_name }}"
-        }
-        EOF
-
-        # Create zip file
-        zip -r "orca-link-icons-plugin-${{ github.ref_name }}.zip" "$PKG_DIR"
-
-        echo "Plugin package created successfully"
+        echo "ZIP_NAME=$ZIP_NAME" >> "$GITHUB_ENV"
+        echo "=== Contents of $ZIP_NAME ==="
+        unzip -l "$ZIP_NAME"
 
     - name: Generate changelog
       id: changelog
       run: |
-        # Get previous tag
         PREVIOUS_TAG=$(git describe --tags --abbrev=0 HEAD^ 2>/dev/null || echo "")
 
         if [ -n "$PREVIOUS_TAG" ]; then
-          CHANGELOG=$(git log --pretty=format:"- %s (%h)" $PREVIOUS_TAG..HEAD)
+          CHANGELOG=$(git log --pretty=format:"- %s (%h)" "${PREVIOUS_TAG}..HEAD")
         else
           CHANGELOG=$(git log --pretty=format:"- %s (%h)")
         fi
 
-        # Save changelog to file
-        echo "$CHANGELOG" > CHANGELOG.md
-
-        # Set output for GitHub release
-        echo "changelog<<EOF" >> $GITHUB_OUTPUT
-        echo "$CHANGELOG" >> $GITHUB_OUTPUT
-        echo "EOF" >> $GITHUB_OUTPUT
+        echo "changelog<<EOF" >> "$GITHUB_OUTPUT"
+        echo "$CHANGELOG"    >> "$GITHUB_OUTPUT"
+        echo "EOF"           >> "$GITHUB_OUTPUT"
 
     - name: Create GitHub Release
       uses: softprops/action-gh-release@v1
       with:
-        files: |
-          orca-link-icons-plugin-${{ github.ref_name }}.zip
-          dist/index.js
+        files: ${{ env.ZIP_NAME }}
         body: |
           ## 🚀 Orca Link Icons Plugin ${{ github.ref_name }}
 
           自动将链接中的默认地球图标替换为真实网站图标，支持多源获取和本地缓存。
 
-          ### ✨ 新特性
+          ### ✨ 更新内容
           ${{ steps.changelog.outputs.changelog }}
 
           ### 📦 安装方法
@@ -112,46 +85,19 @@ jobs:
           2. 解压到 Orca 的 `plugins` 目录
           3. 重启 Orca 并在插件设置中启用
 
-          ### 🔧 配置选项
-          支持通过控制台 API 进行高级配置：
+          ### 🔧 控制台 API
           ```javascript
-          // 查看插件状态
-          window.__ORCA_ICON_REPLACER.getStats()
-
-          // 清除缓存
-          window.__ORCA_ICON_REPLACER.clearCache()
-
-          // 重启插件
-          window.__ORCA_ICON_REPLACER.restart()
+          window.__ORCA_ICON_REPLACER.getStats()    // 查看状态
+          window.__ORCA_ICON_REPLACER.clearCache()  // 清除缓存
+          window.__ORCA_ICON_REPLACER.restart()     // 重启插件
           ```
 
           ### 🐛 问题反馈
-          如果遇到问题，请在 [Issues](https://github.com/SaXz2/orca-link-icons-plugin/issues) 中反馈。
+          如有问题，请在 [Issues](https://github.com/SaXz2/orca-link-icons-plugin/issues) 反馈。
         draft: false
         prerelease: ${{ contains(github.ref_name, 'alpha') || contains(github.ref_name, 'beta') || contains(github.ref_name, 'rc') }}
       env:
         GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-
-    - name: Update package.json version
-      if: startsWith(github.ref, 'refs/tags/v')
-      run: |
-        # Extract version from tag (remove 'v' prefix)
-        VERSION="${{ github.ref_name }}"
-        VERSION="${VERSION#v}"
-
-        # Update version in package.json
-        npm version $VERSION --no-git-tag-version --allow-same-version
-
-        echo "Updated package.json version to $VERSION"
-
-    - name: Commit version update
-      if: startsWith(github.ref, 'refs/tags/v')
-      run: |
-        git config --local user.email "action@github.com"
-        git config --local user.name "GitHub Action"
-        git add package.json
-        git diff --staged --quiet || git commit -m "chore: update version to ${{ github.ref_name }} [skip ci]"
-        git push
 
   notify:
     runs-on: ubuntu-latest
@@ -159,14 +105,14 @@ jobs:
     if: always()
 
     steps:
-    - name: Notify release status
+    - name: Notify success
       if: needs.release.result == 'success'
       run: |
         echo "✅ Plugin ${{ github.ref_name }} released successfully!"
-        echo "📦 Download: https://github.com/SaXz2/orca-link-icons-plugin/releases/tag/${{ github.ref_name }}"
+        echo "📦 https://github.com/SaXz2/orca-link-icons-plugin/releases/tag/${{ github.ref_name }}"
 
-    - name: Notify release failure
+    - name: Notify failure
       if: needs.release.result == 'failure'
       run: |
-        echo "❌ Plugin release failed for ${{ github.ref_name }}"
+        echo "❌ Release failed for ${{ github.ref_name }}"
         exit 1

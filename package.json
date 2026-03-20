@@ -46,7 +46,7 @@
   "author": "iwy5nfalj9l1y",
   "license": "MIT",
   "engines": {
-    "node": ">=16.0.0"
+    "node": ">=18.0.0"
   },
   "repository": {
     "type": "git",

@@ -8,124 +8,44 @@ on:
 jobs:
   release:
     runs-on: ubuntu-latest
+    permissions:
+      contents: write
 
     steps:
-    - name: Checkout code
-      uses: actions/checkout@v4
-      with:
-        fetch-depth: 0
+    - uses: actions/checkout@v4
 
-    - name: Setup Node.js
-      uses: actions/setup-node@v4
+    - uses: actions/setup-node@v4
       with:
-        node-version: '18.x'
+        node-version: '22.x'
         cache: 'npm'
 
-    - name: Install dependencies
-      run: npm ci
-
-    - name: Type check and build
+    - name: Install and build
       run: |
-        npm run type-check
+        npm ci
         npm run build
 
-    - name: Validate plugin structure
-      run: npm run validate-plugin-structure
-
-    - name: Create release zip
+    - name: Create zip
       run: |
         VERSION="${{ github.ref_name }}"
-        ZIP_NAME="orca-link-icons-plugin-${VERSION}.zip"
+        ZIP="orca-link-icons-plugin-${VERSION}.zip"
 
-        # Stage files in a temp directory so zip root contains files directly
-        STAGE_DIR=$(mktemp -d)
+        STAGE=$(mktemp -d)
+        cp package.json LICENSE icon.png "$STAGE/"
+        cp README.md "$STAGE/" 2>/dev/null || true
+        cp -r dist "$STAGE/"
+        (cd "$STAGE" && zip -r "$GITHUB_WORKSPACE/$ZIP" .)
 
-        cp package.json  "$STAGE_DIR/"
-        cp -r dist       "$STAGE_DIR/"
-        cp LICENSE       "$STAGE_DIR/"
-        cp icon.png      "$STAGE_DIR/"
-        cp README.md     "$STAGE_DIR/" 2>/dev/null || true
+        echo "ZIP=$ZIP" >> "$GITHUB_ENV"
+        echo "--- zip contents ---"
+        unzip -l "$ZIP"
 
-        # Zip from inside the stage dir so paths are at the root level
-        (cd "$STAGE_DIR" && zip -r "$GITHUB_WORKSPACE/$ZIP_NAME" .)
-
-        echo "ZIP_NAME=$ZIP_NAME" >> "$GITHUB_ENV"
-        echo "=== Contents of $ZIP_NAME ==="
-        unzip -l "$ZIP_NAME"
-
-    - name: Generate changelog
-      id: changelog
-      run: |
-        PREVIOUS_TAG=$(git describe --tags --abbrev=0 HEAD^ 2>/dev/null || echo "")
-
-        if [ -n "$PREVIOUS_TAG" ]; then
-          CHANGELOG=$(git log --pretty=format:"- %s (%h)" "${PREVIOUS_TAG}..HEAD")
-        else
-          CHANGELOG=$(git log --pretty=format:"- %s (%h)")
-        fi
-
-        echo "changelog<<EOF" >> "$GITHUB_OUTPUT"
-        echo "$CHANGELOG"    >> "$GITHUB_OUTPUT"
-        echo "EOF"           >> "$GITHUB_OUTPUT"
-
-    - name: Create GitHub Release
+    - name: Publish release
       env:
         GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-        CHANGELOG: ${{ steps.changelog.outputs.changelog }}
       run: |
         VERSION="${{ github.ref_name }}"
-
-        # Build release notes
-        {
-          echo "## 🚀 Orca Link Icons Plugin $VERSION"
-          echo ""
-          echo "自动将链接中的默认地球图标替换为真实网站图标，支持多源获取和本地缓存。"
-          echo ""
-          echo "### ✨ 更新内容"
-          echo "$CHANGELOG"
-          echo ""
-          echo "### 📦 安装方法"
-          echo "1. 下载 \`orca-link-icons-plugin-${VERSION}.zip\`"
-          echo "2. 解压到 Orca 的 \`plugins\` 目录"
-          echo "3. 重启 Orca 并在插件设置中启用"
-          echo ""
-          echo "### 🔧 控制台 API"
-          echo "\`\`\`javascript"
-          echo "window.__ORCA_ICON_REPLACER.getStats()    // 查看状态"
-          echo "window.__ORCA_ICON_REPLACER.clearCache()  // 清除缓存"
-          echo "window.__ORCA_ICON_REPLACER.restart()     // 重启插件"
-          echo "\`\`\`"
-          echo ""
-          echo "### 🐛 问题反馈"
-          echo "如有问题，请在 [Issues](https://github.com/SaXz2/orca-link-icons-plugin/issues) 反馈。"
-        } > release_notes.md
-
-        PRERELEASE_FLAG=""
-        echo "$VERSION" | grep -qE '(alpha|beta|rc)' && PRERELEASE_FLAG="--prerelease"
-
-        # Delete any pre-existing release with this tag (idempotent retry)
         gh release delete "$VERSION" --yes 2>/dev/null || true
-
         gh release create "$VERSION" \
-          "${{ env.ZIP_NAME }}" \
+          "${{ env.ZIP }}" \
           --title "Orca Link Icons Plugin $VERSION" \
-          --notes-file release_notes.md \
-          $PRERELEASE_FLAG
-
-  notify:
-    runs-on: ubuntu-latest
-    needs: release
-    if: always()
-
-    steps:
-    - name: Notify success
-      if: needs.release.result == 'success'
-      run: |
-        echo "✅ Plugin ${{ github.ref_name }} released successfully!"
-        echo "📦 https://github.com/SaXz2/orca-link-icons-plugin/releases/tag/${{ github.ref_name }}"
-
-    - name: Notify failure
-      if: needs.release.result == 'failure'
-      run: |
-        echo "❌ Release failed for ${{ github.ref_name }}"
-        exit 1
+          --generate-notes

@@ -69,35 +69,45 @@ jobs:
         echo "EOF"           >> "$GITHUB_OUTPUT"
 
     - name: Create GitHub Release
-      uses: softprops/action-gh-release@v1
-      with:
-        files: ${{ env.ZIP_NAME }}
-        body: |
-          ## 🚀 Orca Link Icons Plugin ${{ github.ref_name }}
-
-          自动将链接中的默认地球图标替换为真实网站图标，支持多源获取和本地缓存。
-
-          ### ✨ 更新内容
-          ${{ steps.changelog.outputs.changelog }}
-
-          ### 📦 安装方法
-          1. 下载 `orca-link-icons-plugin-${{ github.ref_name }}.zip`
-          2. 解压到 Orca 的 `plugins` 目录
-          3. 重启 Orca 并在插件设置中启用
-
-          ### 🔧 控制台 API
-          ```javascript
-          window.__ORCA_ICON_REPLACER.getStats()    // 查看状态
-          window.__ORCA_ICON_REPLACER.clearCache()  // 清除缓存
-          window.__ORCA_ICON_REPLACER.restart()     // 重启插件
-          ```
-
-          ### 🐛 问题反馈
-          如有问题，请在 [Issues](https://github.com/SaXz2/orca-link-icons-plugin/issues) 反馈。
-        draft: false
-        prerelease: ${{ contains(github.ref_name, 'alpha') || contains(github.ref_name, 'beta') || contains(github.ref_name, 'rc') }}
       env:
-        GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        CHANGELOG: ${{ steps.changelog.outputs.changelog }}
+      run: |
+        VERSION="${{ github.ref_name }}"
+
+        # Build release notes
+        {
+          echo "## 🚀 Orca Link Icons Plugin $VERSION"
+          echo ""
+          echo "自动将链接中的默认地球图标替换为真实网站图标，支持多源获取和本地缓存。"
+          echo ""
+          echo "### ✨ 更新内容"
+          echo "$CHANGELOG"
+          echo ""
+          echo "### 📦 安装方法"
+          echo "1. 下载 \`orca-link-icons-plugin-${VERSION}.zip\`"
+          echo "2. 解压到 Orca 的 \`plugins\` 目录"
+          echo "3. 重启 Orca 并在插件设置中启用"
+          echo ""
+          echo "### 🔧 控制台 API"
+          echo "\`\`\`javascript"
+          echo "window.__ORCA_ICON_REPLACER.getStats()    // 查看状态"
+          echo "window.__ORCA_ICON_REPLACER.clearCache()  // 清除缓存"
+          echo "window.__ORCA_ICON_REPLACER.restart()     // 重启插件"
+          echo "\`\`\`"
+          echo ""
+          echo "### 🐛 问题反馈"
+          echo "如有问题，请在 [Issues](https://github.com/SaXz2/orca-link-icons-plugin/issues) 反馈。"
+        } > release_notes.md
+
+        PRERELEASE_FLAG=""
+        echo "$VERSION" | grep -qE '(alpha|beta|rc)' && PRERELEASE_FLAG="--prerelease"
+
+        gh release create "$VERSION" \
+          "${{ env.ZIP_NAME }}" \
+          --title "Orca Link Icons Plugin $VERSION" \
+          --notes-file release_notes.md \
+          $PRERELEASE_FLAG
 
   notify:
     runs-on: ubuntu-latest

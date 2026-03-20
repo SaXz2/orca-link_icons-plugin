@@ -15,6 +15,7 @@ try {
   const requiredFiles = [
     'dist/index.js',
     'icon.png',
+    'LICENSE',
     'package.json'
   ];
 

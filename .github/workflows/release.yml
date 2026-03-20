@@ -40,6 +40,7 @@ jobs:
         # Copy required files
         cp -r dist "$PKG_DIR/"
         cp icon.png "$PKG_DIR/"
+        cp LICENSE "$PKG_DIR/"
         cp README.md "$PKG_DIR/" 2>/dev/null || echo "README.md not found, skipping"
 
         # Create package.json for distribution (minimal)

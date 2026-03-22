@@ -1,186 +1,111 @@
-# GitHub Actions 工作流
+# Orca Link Icons Plugin
 
-本目录包含Orca Link Icons Plugin的自动化工作流配置。
+自动更新链接图标插件 - 为 Orca Note 中的链接自动获取并显示网站图标
 
-## 工作流概览
+## 功能特性
 
-### 🔄 CI构建和测试 (`.github/workflows/ci.yml`)
+- 🚀 **自动检测**: 实时检测页面中的新链接
+- 🎯 **智能获取**: 从多个图标源自动获取网站图标
+- 💾 **缓存系统**: 本地缓存图标，提高加载速度
+- 🔄 **批量处理**: 分批处理大量链接，避免性能问题
+- 🛡️ **错误处理**: 完善的错误处理和降级机制
+- 🎨 **美观显示**: 平滑的加载动画和过渡效果
 
-**触发条件:**
-- 推送到 `main` 或 `develop` 分支
-- 针对 `main` 分支的Pull Request
+## 快速开始
 
-**功能:**
-- 多Node.js版本矩阵构建 (16.x, 18.x, 20.x)
-- TypeScript类型检查
-- ESLint代码检查
-- 插件构建验证
-- 文件大小检查
-- 插件结构验证
-- 构建产物上传
+### 安装
 
-### 🚀 发布工作流 (`.github/workflows/release.yml`)
+1. 将此插件文件夹复制到 `orca/plugins/` 目录下
+2. 重启 Orca Note 应用
+3. 在插件管理器中启用此插件
 
-**触发条件:**
-- 推送版本标签 (如 `v1.0.0`)
+### 使用
 
-**功能:**
-- 完整的构建和验证流程
-- 创建插件包 (.zip文件)
-- 生成更新日志
-- 创建GitHub Release
-- 更新package.json版本
-- 发布状态通知
+插件启用后会自动工作，无需额外配置：
 
-### 🔧 开发工作流 (`.github/workflows/dev.yml`)
+1. 在笔记中添加链接
+2. 插件会自动检测并替换默认的链接图标
+3. 图标会从网站自动获取并缓存
 
-**触发条件:**
-- 推送到 `develop` 分支
-- 针对 `develop` 分支的Pull Request
-- 定时依赖检查 (每周)
+## 控制台命令
 
-**功能:**
-- 开发环境检查
-- 破坏性变更检测
-- 开发报告生成
-- 自动依赖更新
+插件在全局对象 `window.__ORCA_ICON_REPLACER` 中提供了以下控制命令：
 
-## 使用方法
+```javascript
+// 重启插件
+__ORCA_ICON_REPLACER.restart()
 
-### 触发发布
+// 停止插件
+__ORCA_ICON_REPLACER.stop()
 
-1. 更新版本号:
-   ```bash
-   npm version patch  # 1.0.0 -> 1.0.1
-   npm version minor  # 1.0.0 -> 1.1.0
-   npm version major  # 1.0.0 -> 2.0.0
-   ```
+// 清除缓存
+__ORCA_ICON_REPLACER.clearCache()
 
-2. 推送版本标签:
-   ```bash
-   git push origin v1.0.1
-   ```
+// 获取统计信息
+__ORCA_ICON_REPLACER.getStats()
 
-3. 发布工作流将自动执行并创建GitHub Release
-
-### 开发流程
-
-1. 在 `develop` 分支进行开发
-2. 推送代码会自动触发开发工作流
-3. 创建Pull Request到 `main` 分支进行发布
-4. 合并后可创建版本标签触发发布
-
-### 手动触发
-
-你也可以手动触发工作流:
-
-```bash
-# 触发依赖更新
-git commit -m "chore: update dependencies [deps]"
-git push
-
-# 跳过CI检查
-git commit -m "feat: new feature [skip ci]"
-git push
+// 检查内存使用情况
+__ORCA_ICON_REPLACER.inspectMemory()
 ```
 
-## 环境变量
+## 技术特性
 
-工作流使用以下环境变量:
+- **多图标源**: 支持 Google、DuckDuckGo、Yandex 等多个图标源
+- **智能降级**: 当图标获取失败时自动使用备用图标
+- **内存管理**: 完善的资源清理机制，防止内存泄漏
+- **性能优化**: 防抖处理、批量加载、超时控制等优化措施
 
-- `GITHUB_TOKEN`: GitHub提供的自动令牌
-- `NODE_VERSION`: 使用的Node.js版本
+## 配置参数
 
-## 输出产物
+插件内置以下配置参数：
 
-### 构建产物
-- 插件包: `orca-link-icons-plugin-{version}.zip`
-- 构建文件: `dist/index.js`
-- 验证报告: 构建日志
+| 参数 | 默认值 | 说明 |
+|------|--------|------|
+| `CACHE_KEY` | `orca-icon-cache-v3` | 缓存键名 |
+| `MAX_CACHE_SIZE` | 500 | 最大缓存数量 |
+| `BATCH_SIZE` | 15 | 批量处理大小 |
+| `LOAD_TIMEOUT` | 3000ms | 加载超时时间 |
+| `RETRY_COUNT` | 3 | 重试次数 |
+| `DEBOUNCE_DELAY` | 500ms | 防抖延迟 |
 
-### Release产物
-- GitHub Release页面
-- 下载链接
-- 更新日志
-- 插件信息文件
+## 兼容性
 
-## 故障排除
+- Orca Note 最新版本
+- 现代浏览器 (支持 ES6+)
+- 支持 HTTPS 和 HTTP 链接
 
-### 构建失败
-1. 检查TypeScript类型错误
-2. 检查ESLint错误
-3. 验证依赖版本兼容性
-4. 检查文件大小限制
+## 开发
 
-### 发布失败
-1. 确认版本标签格式正确 (`v*.*.*`)
-2. 检查GitHub Token权限
-3. 验证插件结构完整性
+### 构建
 
-### 依赖更新失败
-1. 检查依赖兼容性
-2. 手动解决冲突
-3. 运行 `npm audit fix`
-
-## 最佳实践
-
-### 提交信息
 ```bash
-# 功能提交
-git commit -m "feat: add new feature"
-
-# 修复提交
-git commit -m "fix: resolve issue description"
-
-# 文档提交
-git commit -m "docs: update documentation"
-
-# 样式提交
-git commit -m "style: code formatting"
-
-# 重构提交
-git commit -m "refactor: code optimization"
-
-# 测试提交
-git commit -m "test: add unit tests"
-
-# 跳过CI
-git commit -m "chore: update dependencies [skip ci]"
+npm run build
 ```
 
-### 版本管理
+### 开发模式
+
 ```bash
-# 补丁版本 (1.0.0 -> 1.0.1)
-npm version patch
-
-# 次版本 (1.0.0 -> 1.1.0)
-npm version minor
-
-# 主版本 (1.0.0 -> 2.0.0)
-npm version major
-
-# 预发布版本 (1.0.0 -> 1.0.1-alpha.1)
-npm version prerelease --preid=alpha
+npm run dev
 ```
 
-### 分支策略
-- `main`: 稳定发布分支
-- `develop`: 开发分支
-- `feature/*`: 功能分支
-- `hotfix/*`: 热修复分支
+### 类型检查
 
-## 监控和通知
+```bash
+npm run type-check
+```
 
-工作流状态会通过以下方式通知:
+### 验证插件结构
 
-- GitHub Actions界面
-- Pull Request状态检查
-- Release通知
-- 开发报告摘要
+```bash
+npm run validate-plugin-structure
+```
 
-## 安全考虑
+## 作者
 
-- 所有工作流使用官方GitHub Actions
-- 依赖更新自动进行安全审计
-- 代码扫描检查潜在漏洞
-- 最小权限原则使用GITHUB_TOKEN
+**iwy5nfalj9l1y**
+
+- GitHub: [SaXz2/orca-link-icons-plugin](https://github.com/SaXz2/orca-link-icons-plugin)
+
+## 许可证
+
+MIT License - 详见 [LICENSE](LICENSE) 文件 

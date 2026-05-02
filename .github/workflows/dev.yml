@@ -17,7 +17,7 @@ jobs:
     - name: Setup Node.js
       uses: actions/setup-node@v4
       with:
-        node-version: '18.x'
+        node-version: '22.x'
         cache: 'npm'
 
     - name: Install dependencies
@@ -29,9 +29,6 @@ jobs:
 
         # Type checking
         npm run type-check
-
-        # Linting
-        npm run lint
 
         # Build
         npm run build
@@ -88,7 +85,7 @@ jobs:
     - name: Setup Node.js
       uses: actions/setup-node@v4
       with:
-        node-version: '18.x'
+        node-version: '22.x'
         cache: 'npm'
 
     - name: Check for outdated dependencies

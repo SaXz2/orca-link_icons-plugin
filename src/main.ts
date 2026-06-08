@@ -2,14 +2,30 @@ import { CONFIG } from './libs/config';
 import { IconCache } from './libs/cache';
 import { fetchIcon } from './libs/icon-fetcher';
 
-let cleanup: (() => void) | null = null;
+type Runtime = {
+  cache: IconCache;
+  processLinks: () => void;
+  cleanup: () => void;
+  restoreIcons: () => void;
+};
+
+const COMMAND_CLEAR_CACHE = 'orca-link-icons.clearCache';
+const COMMAND_REFRESH_CACHE = 'orca-link-icons.refreshCache';
+
+let runtime: Runtime | null = null;
+let beforeUnloadCleanup: (() => void) | null = null;
 
 function extractDomain(url: string): string | null {
+  const value = url.trim();
+  if (!value) return null;
+
   try {
-    const { hostname } = new URL(
-      url.startsWith('http') ? url : `https://${url}`,
+    const { hostname, protocol } = new URL(
+      /^[a-z][a-z\d+\-.]*:/i.test(value) ? value : `https://${value}`,
     );
-    return hostname.replace(/^www\./, '');
+    if (protocol !== 'http:' && protocol !== 'https:') return null;
+
+    return hostname.replace(/^www\./, '').toLowerCase();
   } catch {
     return null;
   }
@@ -44,181 +60,296 @@ function injectStyles(): HTMLStyleElement {
   return style;
 }
 
-export async function load(pluginName: string) {
-  let activeCleanup: (() => void) | null = null;
-  let cache: IconCache;
-  let processLinks: () => void;
-  let style: HTMLStyleElement;
+function createDefaultIcon(): HTMLElement {
+  const icon = document.createElement('i');
+  icon.className = 'ti ti-world orca-inline-l-icon';
+  return icon;
+}
 
-  function start(): () => void {
-    style = injectStyles();
-    cache = new IconCache(CONFIG.CACHE_KEY, CONFIG.MAX_CACHE_SIZE);
+function getIconNode(linkElement: Element): HTMLElement | null {
+  return linkElement.querySelector(
+    `${CONFIG.ICON_SELECTOR}, .orca-dynamic-icon`,
+  ) as HTMLElement | null;
+}
 
-    let debounceTimer: ReturnType<typeof setTimeout> | null = null;
-    const batchTimers: ReturnType<typeof setTimeout>[] = [];
+function resetLink(linkElement: Element): void {
+  const el = linkElement as HTMLElement;
+  const currentIcon = getIconNode(linkElement);
 
-    async function replaceIcon(linkElement: Element): Promise<void> {
-      const originalIcon = linkElement.querySelector(
-        CONFIG.ICON_SELECTOR,
-      ) as HTMLElement | null;
-      if (!originalIcon) return;
-
-      const el = linkElement as HTMLElement;
-      if (el.dataset.iconProcessed) return;
-      el.dataset.iconProcessed = 'true';
-
-      originalIcon.classList.add('orca-icon-loading');
-
-      try {
-        const url = linkElement.getAttribute('href') || '';
-        const domain = extractDomain(url);
-        if (!domain) return;
-
-        let iconUrl = cache.get(domain);
-        if (iconUrl === undefined) {
-          const fetched = await fetchIcon(domain, {
-            sources: CONFIG.ICON_SOURCES.map((fn) => fn(domain)),
-            timeout: CONFIG.LOAD_TIMEOUT,
-            maxRetries: CONFIG.RETRY_COUNT,
-          });
-          if (fetched) {
-            cache.set(domain, fetched);
-            iconUrl = fetched;
-          }
-        }
-
-        originalIcon.classList.remove('orca-icon-loading');
-
-        const img = new Image();
-        img.className = iconUrl
-          ? 'orca-dynamic-icon'
-          : 'orca-dynamic-icon orca-icon-fallback';
-        img.src = iconUrl || CONFIG.FALLBACK_ICON;
-        img.alt = `${domain} icon`;
-
-        img.onload = () => {
-          originalIcon.replaceWith(img);
-          img.style.opacity = '1';
-        };
-
-        img.onerror = () => {
-          img.src = CONFIG.FALLBACK_ICON;
-          img.className = 'orca-dynamic-icon orca-icon-fallback';
-        };
-      } catch (e) {
-        console.warn(
-          `[图标插件] 处理链接失败: ${linkElement.getAttribute('href')}`,
-          e,
-        );
-        originalIcon.classList.remove('orca-icon-loading');
-      }
-    }
-
-    processLinks = () => {
-      if (debounceTimer) clearTimeout(debounceTimer);
-
-      debounceTimer = setTimeout(async () => {
-        debounceTimer = null;
-        const links = [
-          ...document.querySelectorAll(
-            `${CONFIG.SELECTOR}:not([data-icon-processed])`,
-          ),
-        ];
-
-        if (links.length === 0) return;
-
-        for (let i = 0; i < links.length; i += CONFIG.BATCH_SIZE) {
-          const batch = links.slice(i, i + CONFIG.BATCH_SIZE);
-          await Promise.all(batch.map((link) => replaceIcon(link)));
-
-          if (i + CONFIG.BATCH_SIZE < links.length) {
-            await new Promise<void>((r) => {
-              const timer = setTimeout(r, CONFIG.BATCH_INTERVAL);
-              batchTimers.push(timer);
-            });
-          }
-        }
-      }, CONFIG.DEBOUNCE_DELAY);
-    };
-
-    function shouldHandle(e: Event): boolean {
-      return !!(e.target as Element).closest?.(
-        '[contenteditable], .orca-inline-editor',
-      );
-    }
-
-    const onPaste = (e: Event) => {
-      if (shouldHandle(e)) processLinks();
-    };
-    const onInput = (e: Event) => {
-      if (shouldHandle(e)) processLinks();
-    };
-    const onDrop = () => processLinks();
-
-    const observer = new MutationObserver((mutations) => {
-      if (
-        mutations.some((m) =>
-          [...m.addedNodes].some((n) => n.nodeType === 1),
-        )
-      ) {
-        processLinks();
-      }
-    });
-    observer.observe(document.body, { childList: true, subtree: true });
-
-    document.addEventListener('paste', onPaste);
-    document.addEventListener('input', onInput);
-    document.addEventListener('drop', onDrop);
-
-    processLinks();
-
-    console.log('[图标插件] 已启动');
-
-    return () => {
-      observer.disconnect();
-      document.removeEventListener('paste', onPaste);
-      document.removeEventListener('input', onInput);
-      document.removeEventListener('drop', onDrop);
-
-      if (debounceTimer) clearTimeout(debounceTimer);
-      batchTimers.forEach((t) => clearTimeout(t));
-
-      if (style.parentNode) style.remove();
-
-      console.log('[图标插件] 已卸载');
-    };
+  if (currentIcon?.classList.contains('orca-dynamic-icon')) {
+    currentIcon.replaceWith(createDefaultIcon());
+  } else {
+    currentIcon?.classList.remove('orca-icon-loading');
   }
 
-  activeCleanup = start();
+  delete el.dataset.iconHref;
+  delete el.dataset.iconState;
+  delete el.dataset.iconProcessed;
+}
+
+function start(): Runtime {
+  const style = injectStyles();
+  const cache = new IconCache(
+    CONFIG.CACHE_KEY,
+    CONFIG.MAX_CACHE_SIZE,
+    CONFIG.MAX_CACHE_STORAGE_CHARS,
+    CONFIG.FAILURE_CACHE_TTL,
+  );
+  const pendingFetches = new Map<string, Promise<string | null>>();
+  const batchTimers = new Set<ReturnType<typeof setTimeout>>();
+  let debounceTimer: ReturnType<typeof setTimeout> | null = null;
+  let disposed = false;
+
+  async function getIconUrl(domain: string): Promise<string | null> {
+    const cached = cache.get(domain);
+    if (cached !== undefined) return cached;
+
+    const pending = pendingFetches.get(domain);
+    if (pending) return pending;
+
+    const request = fetchIcon(domain, {
+      sources: CONFIG.ICON_SOURCES.map((fn) => fn(domain)),
+      timeout: CONFIG.LOAD_TIMEOUT,
+      maxRetries: CONFIG.RETRY_COUNT,
+      maxBytes: CONFIG.MAX_ICON_BYTES,
+    })
+      .then((result) => {
+        cache.set(domain, result);
+        return result;
+      })
+      .finally(() => pendingFetches.delete(domain));
+
+    pendingFetches.set(domain, request);
+    return request;
+  }
+
+  async function replaceIcon(linkElement: Element): Promise<void> {
+    const el = linkElement as HTMLElement;
+    const href = linkElement.getAttribute('href') || '';
+
+    if (el.dataset.iconHref === href && el.dataset.iconState) {
+      return;
+    }
+
+    const domain = extractDomain(href);
+    if (!domain) {
+      resetLink(linkElement);
+      el.dataset.iconHref = href;
+      el.dataset.iconState = 'skipped';
+      return;
+    }
+
+    const icon = getIconNode(linkElement);
+    if (!icon) {
+      return;
+    }
+
+    el.dataset.iconHref = href;
+    el.dataset.iconState = 'pending';
+    icon.classList.add('orca-icon-loading');
+
+    try {
+      const iconUrl = await getIconUrl(domain);
+      if (disposed || el.dataset.iconHref !== href) return;
+
+      icon.classList.remove('orca-icon-loading');
+
+      const img = new Image();
+      img.className = iconUrl
+        ? 'orca-dynamic-icon'
+        : 'orca-dynamic-icon orca-icon-fallback';
+      img.alt = `${domain} icon`;
+      img.src = iconUrl || CONFIG.FALLBACK_ICON;
+
+      img.onload = () => {
+        if (!disposed && el.dataset.iconHref === href) {
+          getIconNode(linkElement)?.replaceWith(img);
+          img.style.opacity = '1';
+          el.dataset.iconState = 'done';
+        }
+      };
+
+      img.onerror = () => {
+        img.onerror = null;
+        img.src = CONFIG.FALLBACK_ICON;
+        img.className = 'orca-dynamic-icon orca-icon-fallback';
+        cache.set(domain, null);
+      };
+    } catch (error) {
+      console.warn(
+        `[link-icons] Failed to process link: ${linkElement.getAttribute('href')}`,
+        error,
+      );
+      icon.classList.remove('orca-icon-loading');
+      el.dataset.iconState = 'skipped';
+    }
+  }
+
+  function scheduleDelay(): Promise<void> {
+    return new Promise((resolve) => {
+      const timer = setTimeout(() => {
+        batchTimers.delete(timer);
+        resolve();
+      }, CONFIG.BATCH_INTERVAL);
+      batchTimers.add(timer);
+    });
+  }
+
+  const processLinks = () => {
+    if (disposed) return;
+    if (debounceTimer) clearTimeout(debounceTimer);
+
+    debounceTimer = setTimeout(async () => {
+      debounceTimer = null;
+      const links = [...document.querySelectorAll(CONFIG.SELECTOR)];
+
+      if (links.length === 0) return;
+
+      for (let i = 0; i < links.length && !disposed; i += CONFIG.BATCH_SIZE) {
+        const batch = links.slice(i, i + CONFIG.BATCH_SIZE);
+        await Promise.all(batch.map((link) => replaceIcon(link)));
+
+        if (i + CONFIG.BATCH_SIZE < links.length) {
+          await scheduleDelay();
+        }
+      }
+    }, CONFIG.DEBOUNCE_DELAY);
+  };
+
+  function shouldHandle(e: Event): boolean {
+    return !!(e.target as Element).closest?.(
+      '[contenteditable], .orca-inline-editor',
+    );
+  }
+
+  const onPaste = (e: Event) => {
+    if (shouldHandle(e)) processLinks();
+  };
+  const onInput = (e: Event) => {
+    if (shouldHandle(e)) processLinks();
+  };
+  const onDrop = () => processLinks();
+
+  const observer = new MutationObserver((mutations) => {
+    if (
+      mutations.some((mutation) => {
+        if (
+          mutation.type === 'attributes' &&
+          mutation.attributeName === 'href'
+        ) {
+          return true;
+        }
+
+        return [...mutation.addedNodes].some((node) => node.nodeType === 1);
+      })
+    ) {
+      processLinks();
+    }
+  });
+  observer.observe(document.body, {
+    childList: true,
+    subtree: true,
+    attributes: true,
+    attributeFilter: ['href'],
+  });
+
+  document.addEventListener('paste', onPaste);
+  document.addEventListener('input', onInput);
+  document.addEventListener('drop', onDrop);
+
+  processLinks();
+
+  const restoreIcons = () => {
+    document.querySelectorAll(CONFIG.SELECTOR).forEach(resetLink);
+  };
+
+  const cleanup = () => {
+    disposed = true;
+    observer.disconnect();
+    document.removeEventListener('paste', onPaste);
+    document.removeEventListener('input', onInput);
+    document.removeEventListener('drop', onDrop);
+
+    if (debounceTimer) clearTimeout(debounceTimer);
+    batchTimers.forEach((timer) => clearTimeout(timer));
+    batchTimers.clear();
+
+    restoreIcons();
+    style.remove();
+  };
+
+  console.log('[link-icons] started');
+
+  return {
+    cache,
+    processLinks,
+    cleanup,
+    restoreIcons,
+  };
+}
+
+export async function load(pluginName: string) {
+  if (beforeUnloadCleanup) {
+    window.removeEventListener('beforeunload', beforeUnloadCleanup);
+    beforeUnloadCleanup = null;
+  }
+
+  runtime?.cleanup();
+  runtime = start();
+
+  function clearRuntimeCache(refresh: boolean): void {
+    if (!runtime) return;
+
+    runtime.cache.clear();
+    CONFIG.LEGACY_CACHE_KEYS.forEach((key) => localStorage.removeItem(key));
+    runtime.restoreIcons();
+
+    if (refresh) {
+      runtime.processLinks();
+    }
+  }
+
+  orca.commands.registerCommand(
+    COMMAND_CLEAR_CACHE,
+    () => {
+      clearRuntimeCache(false);
+      orca.notify('success', '链接图标缓存已清除');
+    },
+    '清除链接图标缓存',
+  );
+
+  orca.commands.registerCommand(
+    COMMAND_REFRESH_CACHE,
+    () => {
+      clearRuntimeCache(true);
+      orca.notify('success', '链接图标缓存已清除，正在重新获取');
+    },
+    '刷新链接图标缓存',
+  );
 
   (window as any).__ORCA_ICON_REPLACER = {
     restart() {
-      activeCleanup?.();
-      activeCleanup = start();
-      console.log('[图标插件] 已重启');
+      runtime?.cleanup();
+      runtime = start();
+      console.log('[link-icons] restarted');
     },
 
     stop() {
-      activeCleanup?.();
-      activeCleanup = null;
-      console.log('[图标插件] 已停止');
+      runtime?.cleanup();
+      runtime = null;
+      console.log('[link-icons] stopped');
     },
 
     clearCache() {
-      cache.clear();
-      document.querySelectorAll('.orca-dynamic-icon').forEach((icon) => {
-        icon.remove();
-        const inline = icon.closest('.orca-inline') as HTMLElement;
-        if (inline) delete inline.dataset.iconProcessed;
-      });
-      console.log('[图标插件] 已清除缓存');
-      processLinks();
+      clearRuntimeCache(true);
+      console.log('[link-icons] cache cleared');
     },
 
     getStats() {
       return {
-        cachedIcons: cache.size,
+        cachedIcons: runtime?.cache.size ?? 0,
         lastUpdated: new Date().toLocaleString(),
+        running: runtime !== null,
         config: { ...CONFIG, ICON_SOURCES: '<functions>' },
       };
     },
@@ -234,30 +365,34 @@ export async function load(pluginName: string) {
                 (mem.usedJSHeapSize / mem.totalJSHeapSize) * 100,
               ) + '%',
           }
-        : 'Memory API 不可用';
+        : 'Memory API is unavailable';
     },
   };
 
-  window.addEventListener('beforeunload', () => {
-    if (activeCleanup) {
-      activeCleanup();
-      activeCleanup = null;
-    }
+  beforeUnloadCleanup = () => {
+    runtime?.cleanup();
+    runtime = null;
     delete (window as any).__ORCA_ICON_REPLACER;
-  });
-
-  cleanup = () => activeCleanup?.();
+  };
+  window.addEventListener('beforeunload', beforeUnloadCleanup, { once: true });
 
   console.log(`${pluginName} loaded.`);
 }
 
 export async function unload() {
-  if (cleanup) {
-    cleanup();
-    cleanup = null;
+  if (beforeUnloadCleanup) {
+    window.removeEventListener('beforeunload', beforeUnloadCleanup);
+    beforeUnloadCleanup = null;
   }
+
+  runtime?.cleanup();
+  runtime = null;
+
+  orca.commands.unregisterCommand(COMMAND_CLEAR_CACHE);
+  orca.commands.unregisterCommand(COMMAND_REFRESH_CACHE);
+
   if ((window as any).__ORCA_ICON_REPLACER) {
     delete (window as any).__ORCA_ICON_REPLACER;
   }
-  console.log('[图标插件] 已卸载');
+  console.log('[link-icons] unloaded');
 }

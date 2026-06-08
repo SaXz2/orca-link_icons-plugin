@@ -72,8 +72,9 @@ try {
 
     // Look for key identifiers from our plugin
     const expectedContent = [
-      'orca-icon-cache-v3',
+      'orca-icon-cache-v4',
       'orca-dynamic-icon',
+      'orca-link-icons.clearCache',
       '__ORCA_ICON_REPLACER'
     ];
 

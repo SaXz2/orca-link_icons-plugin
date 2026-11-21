@@ -1,6 +1,7 @@
 import { CONFIG } from './libs/config';
 import { IconCache } from './libs/cache';
 import { fetchIcon } from './libs/icon-fetcher';
+import { domLifecycle, panelsContainer, isPanelish } from './utils/domLifecycle';
 
 type Runtime = {
   cache: IconCache;
@@ -230,27 +231,23 @@ function start(): Runtime {
   };
   const onDrop = () => processLinks();
 
-  const observer = new MutationObserver((mutations) => {
-    if (
-      mutations.some((mutation) => {
-        if (
-          mutation.type === 'attributes' &&
-          mutation.attributeName === 'href'
-        ) {
-          return true;
-        }
-
-        return [...mutation.addedNodes].some((node) => node.nodeType === 1);
-      })
-    ) {
+  // 只观察面板区域，而不是整个 body；目标用解析函数，面板重建后自动重挂
+  const observer = domLifecycle.watch({
+    name: 'linkicons.scan',
+    resolve: () => panelsContainer(),
+    options: {
+      childList: true,
+      subtree: true,
+      attributes: true,
+      attributeFilter: ['href'],
+    },
+    filter: (mutation) =>
+      mutation.type === 'attributes'
+        ? mutation.attributeName === 'href' && isPanelish(mutation.target)
+        : [...mutation.addedNodes].some((node) => node.nodeType === 1 && isPanelish(node)),
+    handler: () => {
       processLinks();
-    }
-  });
-  observer.observe(document.body, {
-    childList: true,
-    subtree: true,
-    attributes: true,
-    attributeFilter: ['href'],
+    },
   });
 
   document.addEventListener('paste', onPaste);
@@ -289,6 +286,8 @@ function start(): Runtime {
 }
 
 export async function load(pluginName: string) {
+  // 接管 document / window 监听：自动去重 + 卸载时统一摘除
+  domLifecycle.install();
   if (beforeUnloadCleanup) {
     window.removeEventListener('beforeunload', beforeUnloadCleanup);
     beforeUnloadCleanup = null;
@@ -380,6 +379,9 @@ export async function load(pluginName: string) {
 }
 
 export async function unload() {
+  // 统一回收所有观察者与 document/window 监听
+  domLifecycle.releaseAll();
+
   if (beforeUnloadCleanup) {
     window.removeEventListener('beforeunload', beforeUnloadCleanup);
     beforeUnloadCleanup = null;
